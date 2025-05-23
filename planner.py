@@ -29,6 +29,7 @@ import pandas as pd
 import polyline
 import requests
 from tqdm import tqdm
+from typing import Dict, List, Tuple
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 설정 및 파일
@@ -85,18 +86,21 @@ CENTER_LINE_WEIGHT = 2  # 중심선 굵기 (혼잡도 기반 그라디언트)
 
 # ─────────────────────────────────────────────────────────────────────────────
 def load_prefs():
-    #if PREF_FILE.exists():
+    # if PREF_FILE.exists():
     #    return orjson.loads(PREF_FILE.read_bytes())
-    if True:
-        DEFAULT_PREFS = {
-            "crowd_weight": 2.0,
-            "max_crowd": 4,
-            "mode_penalty": {"SUBWAY": 10.0, "BUS": 0.0, "WALK": 2.0},
-            "mode_preference": {"SUBWAY": 0.0, "BUS": 10.0, "WALK": 1.0},
-            "walk_limit_min": 15,
-            "runs": 0,
-        }
-    return DEFAULT_PREFS.copy()
+    if PREF_FILE.exists():
+        try:
+            return orjson.loads(PREF_FILE.read_bytes())
+        except:
+            DEFAULT_PREFS = {
+                "crowd_weight": 2.0,
+                "max_crowd": 4,
+                "mode_penalty": {"SUBWAY": 10.0, "BUS": 0.0, "WALK": 2.0},
+                "mode_preference": {"SUBWAY": 0.0, "BUS": 10.0, "WALK": 1.0},
+                "walk_limit_min": 15,
+                "runs": 0,
+            }
+        return DEFAULT_PREFS.copy()
 
 
 def save_prefs(prefs: Dict):
@@ -184,11 +188,9 @@ def odsay_best_route(origin: Tuple[float, float], dest: Tuple[float, float]):
     return []  # 실패 시 빈 경로
 
 
-def score_route(segs: List[dict]) -> float:
-    """
-    주어진 경로 세그먼트 리스트에 대해 선호도 기반 점수를 계산
-    """
-    prefs = load_prefs()
+def score_route(segs: List[dict], *, prefs: Dict | None = None) -> float:
+    if prefs is None:
+        prefs = load_prefs()
     score = 0.0
     total_walk_min = 0
     for s in segs:
@@ -290,10 +292,11 @@ def bus_crowd_level(route_id: str, now: datetime):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-def paths_to_segs(paths: List[dict]):
+def paths_to_segs(paths: List[dict], *, prefs: Dict | None = None):
     segs = []
     now = datetime.now()
-    prefs = load_prefs()
+    if prefs is None:
+        prefs = load_prefs()
     allowed = {"SUBWAY", "BUS", "WALK"}
     for sp in paths:
         tp = sp.get("trafficType")
@@ -466,21 +469,21 @@ def draw_map(segs: list[dict], o: tuple[float, float], d: tuple[float, float]):
     m.save(str(out))
     return out
 
-def odsay_all_routes(origin: tuple[float, float],
-                     dest: tuple[float, float]) -> list[list[dict]]:
+
+def odsay_all_routes(origin, dest, *, prefs: Dict | None = None) -> List[List[dict]]:
     """
     ODsay API에서 얻을 수 있는 모든 후보 경로를 '세그먼트 리스트' 형태로 모아 반환.
     """
     common = {
-        "apiKey": ODSAY_KEY,         # ← 개인 ODsay API 키
-        "lang": 0,                   # 0 = 한국어
+        "apiKey": ODSAY_KEY,  # ← 개인 ODsay API 키
+        "lang": 0,  # 0 = 한국어
         "output": "json",
-        "SX": origin[1],             # 출발 X(경도)
-        "SY": origin[0],             # 출발 Y(위도)
-        "EX": dest[1],               # 도착 X
-        "EY": dest[0],               # 도착 Y
-        "OPT": 0,                    # 0 = 종합 최적
-        "SearchPathType": 0,         # 0 = 대중교통+도보
+        "SX": origin[1],  # 출발 X(경도)
+        "SY": origin[0],  # 출발 Y(위도)
+        "EX": dest[1],  # 도착 X
+        "EY": dest[0],  # 도착 Y
+        "OPT": 0,  # 0 = 종합 최적
+        "SearchPathType": 0,  # 0 = 대중교통+도보
         "reqCoordType": "WGS84GEO",
         "resCoordType": "WGS84GEO",
     }
@@ -492,34 +495,37 @@ def odsay_all_routes(origin: tuple[float, float],
     candidates: list[list[dict]] = []
     for endpoint, extra in endpoints:
         try:
-            r = requests.get(endpoint, params={**common, **extra},
-                             timeout=8, verify=False)
+            r = requests.get(
+                endpoint, params={**common, **extra}, timeout=8, verify=False
+            )
             r.raise_for_status()
             for path in r.json().get("result", {}).get("path", []):
-                segs = paths_to_segs(path.get("subPath", []))
-                if segs:                     # 빈 경로 방지
+                segs = paths_to_segs(path.get("subPath", []), prefs=prefs)
+                if segs:  # 빈 경로 방지
                     candidates.append(segs)
         except requests.RequestException:
-            continue                       # 해당 엔드포인트 실패 → 다음 시도
-    return candidates                       # 후보 0 개면 빈 리스트
-def choose_best_route(routes: list[list[dict]]) -> tuple[int, list[dict]]:
+            continue  # 해당 엔드포인트 실패 → 다음 시도
+    return candidates  # 후보 0 개면 빈 리스트
+
+
+def choose_best_route(routes, *, prefs: Dict | None = None) -> Tuple[int, List[dict]]:
     """
     후보 리스트 중 score_route() 총점이 가장 낮은 경로를 골라
     (인덱스, 경로) 형태로 반환한다.  인덱스는 1-based.
     """
     if not routes:
-        return -1, []                        # 후보가 없으면 -1
-    scored = [(score_route(r), i + 1, r)     # i+1 → 1번부터 numerate
-              for i, r in enumerate(routes)]
-    scored.sort(key=lambda x: x[0])          # 점수 오름차순
+        return -1, []  # 후보가 없으면 -1
+    scored = [(score_route(r, prefs=prefs), i + 1, r) for i, r in enumerate(routes)]
+    scored.sort(key=lambda x: x[0])  # 점수 오름차순
     _, best_idx, best_route = scored[0]
     return best_idx, best_route
+
 
 def debug_print_scores(routes: list[list[dict]]):
     """(선택) 후보별 총점·구성 확인용 디버그 헬퍼"""
     for i, r in enumerate(routes, 1):
-        print(f"[DBG] Route {i:02d}: score={score_route(r):.2f}, "
-              f"segments={len(r)}")
+        print(f"[DBG] Route {i:02d}: score={score_route(r):.2f}, " f"segments={len(r)}")
+
 
 def main():
     p = argparse.ArgumentParser(description="ODsay 멀티모달 플래너 + 시각화 개선 v3")
@@ -530,9 +536,9 @@ def main():
 
     o = parse_location(args.origin)
     d = parse_location(args.dest)
-    routes = odsay_all_routes(o, d)     # ① 후보 목록
-    debug_print_scores(routes)        # ← 원하면 주석 해제
-    best_idx, segs = choose_best_route(routes)   #   # ② 개인 선호 기반 '최적 1 개'
+    routes = odsay_all_routes(o, d)  # ① 후보 목록
+    debug_print_scores(routes)  # ← 원하면 주석 해제
+    best_idx, segs = choose_best_route(routes)  #   # ② 개인 선호 기반 '최적 1 개'
     if best_idx != -1:
         print(f"\n[선택된 후보] {best_idx}번 경로가 최적입니다.")
     if not segs:
