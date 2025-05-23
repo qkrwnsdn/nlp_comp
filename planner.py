@@ -30,7 +30,7 @@ import polyline
 import requests
 from tqdm import tqdm
 from typing import Dict, List, Tuple
-
+# 끝끝
 # ─────────────────────────────────────────────────────────────────────────────
 # 설정 및 파일
 CONF_DIR = Path.home() / ".route_planner"
