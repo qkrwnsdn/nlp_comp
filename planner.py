@@ -30,6 +30,7 @@ import polyline
 import requests
 from tqdm import tqdm
 from typing import Dict, List, Tuple
+
 # 끝끝
 # ─────────────────────────────────────────────────────────────────────────────
 # 설정 및 파일
@@ -44,9 +45,13 @@ DEFAULT_PREFS = {
     "runs": 0,
 }
 # API 키
-ODSAY_KEY = open("odsay_api.txt").read().strip()
-print(ODSAY_KEY)
-KAKAO_REST_KEY = open("kakao_api.txt").read().strip()
+import os
+
+ODSAY_KEY = os.getenv("ODSAY_KEY")
+KAKAO_REST_KEY = os.getenv("KAKAO_REST_KEY")
+# ODSAY_KEY = open("odsay_api.txt").read().strip()
+# print(ODSAY_KEY)
+# KAKAO_REST_KEY = open("kakao_api.txt").read().strip()
 # 혼잡도 CSV
 SUBWAY_CSV = Path("seoul_subway_crowd.csv")
 BUS_CSV = Path("seoul_bus_crowd.csv")
