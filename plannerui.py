@@ -188,6 +188,6 @@ if st.button("🚀  경로 탐색"):
 
 st.markdown(
     "---\n"
-    "<div style='text-align:center;'>ⓒ 2025 Multimodal Route Planner UI · 개발: ChatGPT</div>",
+    "<div style='text-align:center;'>ⓒ 2025 Multimodal Route Planner UI · 개발: Parkjunwoo</div>",
     unsafe_allow_html=True,
 )
